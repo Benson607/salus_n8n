@@ -1,407 +1,500 @@
 using System;
-using System.CommandLine;
-using System.CommandLine.Parsing;
 using System.Collections.Generic;
+using System.CommandLine;
+using System.CommandLine.Invocation;
 using System.IO;
 using System.Linq;
-using System.Security;
+using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 
-namespace Salus.Core
+namespace Salus
 {
-    internal class SalusEngine
+    // --- 4. Error & Logging System ---
+    public abstract class SalusException : Exception
     {
-        private readonly ErrorLogger _errorLogger;
+        protected SalusException(string message) : base(message) { }
+        protected SalusException(string message, Exception? innerException) : base(message, innerException) { }
+    }
 
-        public SalusEngine(ErrorLogger errorLogger)
+    public class SyntaxError : SalusException
+    {
+        public SyntaxError(string message) : base(message) { }
+        public SyntaxError(string message, Exception? innerException = null) : base(message, innerException) { }
+    }
+
+    public class RuntimeError : SalusException
+    {
+        public RuntimeError(string message) : base(message) { }
+        public RuntimeError(string message, Exception? innerException = null) : base(message, innerException) { }
+    }
+
+    public class SecurityError : SalusException
+    {
+        public SecurityError(string message) : base(message) { }
+        public SecurityError(string message, Exception? innerException = null) : base(message, innerException) { }
+    }
+
+    public static class LogSystem
+    {
+        public static void Info(string message) => Console.WriteLine($"[INFO] {message}");
+        public static void Warning(string message) => Console.WriteLine($"[WARN] {message}");
+        public static void Error(string message, Exception? ex = null)
         {
-            _errorLogger = errorLogger ?? throw new ArgumentNullException(nameof(errorLogger));
-            // Initialize AST builder, type system, async model, built-in functions, memory manager.
+            Console.Error.WriteLine($"[ERROR] {message}");
+            if (ex != null) Console.Error.WriteLine(ex.ToString());
+            // TODO: Implement encryption and signing for logs
         }
 
-        public async Task RunScriptAsync(string filePath, List<string> args)
+        public static void SecurityEvent(string message, string? details = null)
         {
-            if (!File.Exists(filePath))
-            {
-                _errorLogger.Log(new FileNotFoundException($"Script file not found: {filePath}"), ErrorLevel.SyntaxError, "File not found.");
-                throw new FileNotFoundException($"Script file not found: {filePath}");
-            }
-            // Placeholder: Read file, parse AST, interpret/execute
-            await Task.Delay(100); // Simulate async work
-        }
-
-        public async Task ExecuteCommandAsync(string commandString, List<string> args)
-        {
-            // Placeholder: Distinguish internal Salus vs. external command.
-            // If external, call ExternalCommandBridge.
-            // If internal, parse and execute.
-            await Task.Delay(50); // Simulate async work
-        }
-
-        public async Task<object> EvaluateExpressionAsync(string expression)
-        {
-            // Placeholder: Parse expression, evaluate, return result.
-            await Task.Delay(50); // Simulate async work
-            return $"Evaluated result of '{expression}'"; // Return a dummy result
-        }
-
-        public async Task ExecuteInlineScriptAsync(string inlineScript)
-        {
-            // Placeholder: Parse AST from string, execute.
-            await Task.Delay(50); // Simulate async work
+            Console.WriteLine($"[SECURITY] {message} {details}");
+            // TODO: Ensure encryption and signing for security logs
         }
     }
-}
 
-namespace Salus.Cli
-{
-    internal class CliModule
+    // --- 1. Core Interpreter (Salus Engine) ---
+    public abstract class AstNode { }
+    public class ExpressionNode : AstNode { }
+    public class StatementNode : AstNode { }
+
+    public class Parser
     {
-        private readonly SalusEngine _salusEngine;
-        private readonly ErrorLogger _errorLogger;
-        private readonly SecurityManager _securityManager;
-
-        public CliModule(SalusEngine salusEngine, ErrorLogger errorLogger, SecurityManager securityManager)
+        public AstNode Parse(string code)
         {
-            _salusEngine = salusEngine ?? throw new ArgumentNullException(nameof(salusEngine));
-            _errorLogger = errorLogger ?? throw new ArgumentNullException(nameof(errorLogger));
+            LogSystem.Info("Parsing code...");
+            // TODO: Implement actual parsing logic
+            return new StatementNode(); // Placeholder
+        }
+    }
+
+    public class Interpreter
+    {
+        private readonly SecurityManager _securityManager;
+        private readonly ModuleManager _moduleManager;
+        private readonly AsyncRuntime _asyncRuntime;
+
+        public Interpreter(SecurityManager securityManager, ModuleManager moduleManager, AsyncRuntime asyncRuntime)
+        {
             _securityManager = securityManager ?? throw new ArgumentNullException(nameof(securityManager));
-            // Initialize auto-completion, history, syntax highlighting
+            _moduleManager = moduleManager ?? throw new ArgumentNullException(nameof(moduleManager));
+            _asyncRuntime = asyncRuntime ?? throw new ArgumentNullException(nameof(asyncRuntime));
         }
 
-        public async Task StartInteractiveModeAsync()
+        public async Task<object?> Execute(AstNode ast)
         {
-            Console.WriteLine("Salus Interactive Mode (REPL). Type 'exit' to quit, 'help' for commands.");
+            LogSystem.Info("Executing AST...");
+            // TODO: Implement AST traversal and execution
+            await Task.Delay(1); // Simulate async work
+            return null; // Placeholder for result
+        }
+
+        public async Task<object?> Eval(string code)
+        {
+            AstNode ast = new Parser().Parse(code);
+            return await Execute(ast);
+        }
+    }
+
+    // --- 2. Module Manager ---
+    public class ModuleManager
+    {
+        private readonly SecurityManager _securityManager;
+        private readonly Dictionary<string, object> _loadedModules = new Dictionary<string, object>();
+
+        public ModuleManager(SecurityManager securityManager)
+        {
+            _securityManager = securityManager ?? throw new ArgumentNullException(nameof(securityManager));
+        }
+
+        public object LoadModule(string moduleName, string path)
+        {
+            LogSystem.Info($"Loading module: {moduleName} from {path}");
+            if (!_securityManager.VerifyPluginSignature(path))
+            {
+                throw new SecurityError($"Module '{moduleName}' signature verification failed.");
+            }
+            // TODO: Implement actual plugin loading (e.g., Assembly.LoadFrom, Reflection)
+            // Ensure sandboxing (IPC/RPC) is considered here for security
+            object module = new object(); // Placeholder for loaded module
+            _loadedModules[moduleName] = module;
+            return module;
+        }
+    }
+
+    // --- 3. External Command Bridge Layer ---
+    public class ExternalCommandBridge
+    {
+        private readonly SecurityManager _securityManager;
+
+        public ExternalCommandBridge(SecurityManager securityManager)
+        {
+            _securityManager = securityManager ?? throw new ArgumentNullException(nameof(securityManager));
+        }
+
+        public async Task<string> ExecuteSystemCommand(string command, string arguments, string workingDirectory)
+        {
+            LogSystem.SecurityEvent($"Attempting to execute external command: {command} {arguments}");
+
+            if (!_securityManager.CanExecuteExternalCommand(command, arguments, workingDirectory))
+            {
+                throw new SecurityError($"Execution of command '{command}' is denied by security policy.");
+            }
+
+            using (System.Diagnostics.Process process = new System.Diagnostics.Process())
+            {
+                process.StartInfo.FileName = command;
+                process.StartInfo.Arguments = arguments;
+                process.StartInfo.RedirectStandardOutput = true;
+                process.StartInfo.RedirectStandardError = true;
+                process.StartInfo.UseShellExecute = false;
+                process.StartInfo.CreateNoWindow = true;
+                process.StartInfo.WorkingDirectory = workingDirectory;
+
+                LogSystem.Info($"Executing: {command} {arguments} in {workingDirectory}");
+                process.Start();
+
+                string output = await process.StandardOutput.ReadToEndAsync();
+                string error = await process.StandardError.ReadToEndAsync();
+
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode != 0)
+                {
+                    LogSystem.Error($"Command '{command}' exited with code {process.ExitCode}. Error: {error}");
+                    throw new RuntimeError($"External command failed: {error}");
+                }
+                LogSystem.Info($"Command '{command}' completed successfully.");
+                return output;
+            }
+        }
+
+        public async Task<string> CallApi(string url, System.Net.Http.HttpMethod method, string? body = null)
+        {
+            if (!_securityManager.CanAccessNetworkResource(url))
+            {
+                throw new SecurityError($"Network access to '{url}' is denied by security policy.");
+            }
+            LogSystem.Info($"Calling API: {method} {url}");
+            using (HttpClient client = new HttpClient())
+            {
+                HttpRequestMessage request = new HttpRequestMessage(method, url);
+
+                if (body != null && (method == System.Net.Http.HttpMethod.Post || method == System.Net.Http.HttpMethod.Put))
+                {
+                    request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                }
+
+                HttpResponseMessage response = await client.SendAsync(request);
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadAsStringAsync();
+            }
+        }
+    }
+
+    // --- 4. Security & Permission Model ---
+    public class SecurityManager
+    {
+        private bool _isSandboxActive = true;
+        private List<string> _allowedPaths = new List<string>();
+
+        public void ActivateSandbox() { _isSandboxActive = true; LogSystem.Info("Sandbox activated."); }
+        public void DeactivateSandbox() { _isSandboxActive = false; LogSystem.Info("Sandbox deactivated (DANGEROUS)."); }
+
+        public void SetAllowedPaths(IEnumerable<string> paths)
+        {
+            _allowedPaths = paths.Select(p => Path.GetFullPath(p)).ToList();
+            LogSystem.Info($"Allowed paths set: {string.Join(", ", _allowedPaths)}");
+        }
+
+        public bool CanExecuteExternalCommand(string command, string arguments, string workingDirectory)
+        {
+            if (!_isSandboxActive) return true;
+
+            if (command.Contains("rm", StringComparison.OrdinalIgnoreCase) || command.Contains("format", StringComparison.OrdinalIgnoreCase)) return false;
+            // TODO: Implement robust policy based on configuration, user permissions, etc.
+            return true;
+        }
+
+        public bool CanAccessNetworkResource(string url)
+        {
+            if (!_isSandboxActive) return true;
+            // TODO: Implement network access policy (whitelist/blacklist URLs/domains)
+            return url.StartsWith("https://api.salus.dev/", StringComparison.OrdinalIgnoreCase); // Example
+        }
+
+        public bool CanAccessFileSystem(string path, FileAccess access)
+        {
+            if (!_isSandboxActive) return true;
+
+            string fullPath = Path.GetFullPath(path);
+            if (_allowedPaths.Any(allowedPath => fullPath.StartsWith(allowedPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                // TODO: Add more fine-grained access checks (e.g., read vs write)
+                return true;
+            }
+
+            LogSystem.SecurityEvent($"File system access denied for: {path} (Access: {access})");
+            return false;
+        }
+
+        public bool VerifyPluginSignature(string pluginPath)
+        {
+            LogSystem.Info($"Verifying plugin signature for: {pluginPath}");
+            // TODO: Implement actual digital signature verification
+            using (var sha256 = SHA256.Create())
+            using (var fs = File.OpenRead(pluginPath))
+            {
+                byte[] hash = sha256.ComputeHash(fs);
+                // In a real scenario, compare 'hash' with a stored/embedded signature.
+                // This is a placeholder and not actual cryptographic signature verification.
+            }
+            LogSystem.SecurityEvent($"Plugin signature verification successful (placeholder): {pluginPath}");
+            return true;
+        }
+    }
+
+    // --- 5. Async Execution Model ---
+    public class AsyncRuntime
+    {
+        private readonly List<Task> _runningTasks = new List<Task>();
+        private readonly object _lock = new object();
+
+        public void ScheduleTask(Task task)
+        {
+            lock (_lock)
+            {
+                _runningTasks.Add(task);
+                LogSystem.Info($"Task scheduled. Total running tasks: {_runningTasks.Count}");
+            }
+        }
+
+        public async Task RunEventLoop()
+        {
+            LogSystem.Info("Starting event loop...");
+            while (true)
+            {
+                List<Task> currentTasks;
+                lock (_lock)
+                {
+                    _runningTasks.RemoveAll(t => t.IsCompleted);
+                    currentTasks = _runningTasks.ToList();
+                }
+
+                if (!currentTasks.Any())
+                {
+                    break; // No more tasks, event loop can finish
+                }
+
+                await Task.WhenAny(currentTasks.Append(Task.Delay(100)));
+                LogSystem.Info($"Event loop iteration. Remaining tasks: {currentTasks.Count}");
+            }
+            LogSystem.Info("Event loop finished.");
+        }
+    }
+
+    // --- 6. CLI Interaction Layer ---
+    public class CliInteraction
+    {
+        private readonly ExternalCommandBridge _commandBridge;
+        private readonly Interpreter _interpreter;
+        private readonly SecurityManager _securityManager;
+
+        public CliInteraction(ExternalCommandBridge commandBridge, Interpreter interpreter, SecurityManager securityManager)
+        {
+            _commandBridge = commandBridge ?? throw new ArgumentNullException(nameof(commandBridge));
+            _interpreter = interpreter ?? throw new ArgumentNullException(nameof(interpreter));
+            _securityManager = securityManager ?? throw new ArgumentNullException(nameof(securityManager));
+        }
+
+        public async Task RunInteractiveMode()
+        {
+            LogSystem.Info("Entering interactive mode (Salus REPL). Type 'exit' to quit.");
             while (true)
             {
                 Console.Write("salus> ");
                 string? input = Console.ReadLine();
-                if (string.IsNullOrWhiteSpace(input)) continue;
 
-                if (input.Equals("exit", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine("Exiting Salus interactive mode.");
-                    break;
-                }
-                if (input.Equals("help", StringComparison.OrdinalIgnoreCase))
-                {
-                    Console.WriteLine("Interactive commands: eval <expr>, exec <cmd>, run <file>, exit, help");
-                    continue;
-                }
+                if (string.IsNullOrWhiteSpace(input)) continue;
+                if (input.Trim().ToLower() == "exit") break;
 
                 try
                 {
-                    var parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length < 1) continue;
-
-                    string command = parts[0];
-                    string argument = parts.Length > 1 ? parts[1] : string.Empty;
-
-                    switch (command.ToLowerInvariant())
+                    if (input.StartsWith("!"))
                     {
-                        case "eval":
-                            if (!string.IsNullOrWhiteSpace(argument))
-                            {
-                                var result = await _securityManager.SandboxExecuteAsync(() => _salusEngine.EvaluateExpressionAsync(argument));
-                                Console.WriteLine($"{result}");
-                            }
-                            else
-                            {
-                                Console.WriteLine("Usage: eval <expression>");
-                            }
-                            break;
-                        case "exec":
-                             if (!string.IsNullOrWhiteSpace(argument))
-                            {
-                                await _securityManager.SandboxExecuteAsync(() => _salusEngine.ExecuteCommandAsync(argument, new List<string>()));
-                            }
-                            else
-                            {
-                                Console.WriteLine("Usage: exec <command>");
-                            }
-                            break;
-                        case "run":
-                             if (!string.IsNullOrWhiteSpace(argument))
-                            {
-                                await _securityManager.SandboxExecuteAsync(() => _salusEngine.RunScriptAsync(argument, new List<string>()));
-                            }
-                            else
-                            {
-                                Console.WriteLine("Usage: run <filepath>");
-                            }
-                            break;
-                        default:
-                            Console.WriteLine($"Unknown interactive command: {command}. Try 'help'.");
-                            break;
+                        string cmd = input.Substring(1).Trim();
+                        string[] parts = cmd.Split(' ', 2);
+                        string commandName = parts[0];
+                        string args = parts.Length > 1 ? parts[1] : "";
+                        string result = await _commandBridge.ExecuteSystemCommand(commandName, args, Directory.GetCurrentDirectory());
+                        Console.WriteLine(result);
                     }
+                    else
+                    {
+                        object? result = await _interpreter.Eval(input);
+                        if (result != null)
+                        {
+                            Console.WriteLine($"=> {result}");
+                        }
+                    }
+                }
+                catch (SalusException ex)
+                {
+                    LogSystem.Error($"Salus Error: {ex.Message}", ex);
                 }
                 catch (Exception ex)
                 {
-                    _errorLogger.Log(ex, ErrorLevel.RuntimeError, "Error in interactive mode.");
-                    Console.Error.WriteLine($"Interactive Error: {ex.Message}");
+                    LogSystem.Error($"Unhandled System Error: {ex.Message}", ex);
                 }
             }
         }
-    }
-}
 
-namespace Salus.Modules
-{
-    internal class ModuleManager
-    {
-        private readonly ErrorLogger _errorLogger;
-
-        public ModuleManager(ErrorLogger errorLogger)
+        public void SetupCliFeatures()
         {
-            _errorLogger = errorLogger ?? throw new ArgumentNullException(nameof(errorLogger));
-            // Plugin loading, version/dependency checking, security validation.
-        }
-
-        public void LoadPlugin(string pluginPath)
-        {
-            // Placeholder: Check digital signature, version, sandbox loading.
+            LogSystem.Info("CLI features (auto-completion, highlighting) are not yet fully implemented in this sample.");
         }
     }
-}
 
-namespace Salus.Logging
-{
-    internal enum ErrorLevel
+    public class Program
     {
-        SyntaxError,
-        RuntimeError,
-        SecurityError,
-        SystemError,
-        Warning,
-        Info
-    }
-
-    internal class ErrorLogger
-    {
-        public ErrorLogger()
+        public static async Task<int> Main(string[] args)
         {
-            // Setup unified format, encryption, signing, output targets.
-        }
+            var securityManager = new SecurityManager();
+            var moduleManager = new ModuleManager(securityManager);
+            var asyncRuntime = new AsyncRuntime();
+            var externalCommandBridge = new ExternalCommandBridge(securityManager);
+            var interpreter = new Interpreter(securityManager, moduleManager, asyncRuntime);
+            var cliInteraction = new CliInteraction(externalCommandBridge, interpreter, securityManager);
 
-        public void Log(Exception ex, ErrorLevel level, string message)
-        {
-            string logMessage = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] [{level}] {message} - Exception: {ex.GetType().Name}: {ex.Message}";
-            if (level >= ErrorLevel.RuntimeError)
+            var rootCommand = new RootCommand("Salus - The multi-platform script interpreter.")
             {
-                Console.Error.WriteLine(logMessage);
-            }
-            else
-            {
-                Console.WriteLine(logMessage);
-            }
-            Console.WriteLine(ex.StackTrace);
-        }
+                new Option<bool>(
+                    "--sandbox",
+                    getDefaultValue: () => true,
+                    description: "Enable security sandbox for execution."
+                ),
+                new Option<string[]?>(
+                    "--allow-path",
+                    description: "Specify paths allowed in sandbox mode (comma-separated)."
+                )
+            };
 
-        public void Log(ErrorLevel level, string message)
-        {
-            string logMessage = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] [{level}] {message}";
-            if (level >= ErrorLevel.RuntimeError)
+            var runCommand = new Command("run", "Execute a Salus script file.")
             {
-                Console.Error.WriteLine(logMessage);
-            }
-            else
+                new Argument<FileInfo>("script-file", "The Salus script file to execute.")
+            };
+            runCommand.SetHandler(async (context) =>
             {
-                Console.WriteLine(logMessage);
-            }
-        }
-    }
-}
+                FileInfo file = context.ParseResult.GetValueForArgument(runCommand.Arguments.First(a => a.Name == "script-file")) as FileInfo ?? throw new ArgumentException("Script file argument is missing or invalid.");
+                bool sandbox = context.ParseResult.GetValueForOption<bool>(rootCommand.Options.First(o => o.Name == "sandbox"));
+                string[]? allowedPaths = context.ParseResult.GetValueForOption<string[]?>(rootCommand.Options.First(o => o.Name == "allow-path"));
 
-namespace Salus.Security
-{
-    internal class SecurityManager
-    {
-        private readonly ErrorLogger _errorLogger;
+                if (sandbox) securityManager.ActivateSandbox(); else securityManager.DeactivateSandbox();
+                if (allowedPaths != null) securityManager.SetAllowedPaths(allowedPaths);
 
-        public SecurityManager(ErrorLogger errorLogger)
-        {
-            _errorLogger = errorLogger ?? throw new ArgumentNullException(nameof(errorLogger));
-            // Initialize sandboxing mechanism, permission store, audit logging.
-        }
-
-        public async Task<T> SandboxExecuteAsync<T>(Func<Task<T>> action)
-        {
-            try
-            {
-                if (!CheckPermissions(action.Method.Name))
+                try
                 {
-                    _errorLogger.Log(ErrorLevel.SecurityError, $"Permission denied for action: {action.Method.Name}");
-                    throw new SecurityException($"Permission denied to execute {action.Method.Name}");
+                    if (!file.Exists)
+                    {
+                        LogSystem.Error($"Error: Script file not found at '{file.FullName}'");
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    string code = await File.ReadAllTextAsync(file.FullName);
+                    await interpreter.Eval(code);
                 }
-                var result = await action();
-                return result;
-            }
-            catch (Exception ex)
-            {
-                _errorLogger.Log(ex, ErrorLevel.SecurityError, $"Sandboxed execution failed: {ex.Message}");
-                throw;
-            }
-        }
-
-        public async Task SandboxExecuteAsync(Func<Task> action)
-        {
-            try
-            {
-                if (!CheckPermissions(action.Method.Name))
+                catch (SalusException ex)
                 {
-                     _errorLogger.Log(ErrorLevel.SecurityError, $"Permission denied for action: {action.Method.Name}");
-                    throw new SecurityException($"Permission denied to execute {action.Method.Name}");
+                    LogSystem.Error($"Salus Script Error: {ex.Message}", ex);
+                    context.ExitCode = 1;
                 }
-                await action();
-            }
-            catch (Exception ex)
+                catch (Exception ex)
+                {
+                    LogSystem.Error($"Unhandled System Error during script execution: {ex.Message}", ex);
+                    context.ExitCode = 1;
+                }
+            });
+
+            var execCommand = new Command("exec", "Execute a Salus code string directly.")
             {
-                _errorLogger.Log(ex, ErrorLevel.SecurityError, $"Sandboxed execution failed: {ex.Message}");
-                throw;
-            }
-        }
+                new Argument<string>("code", "The Salus code string to execute.")
+            };
+            execCommand.SetHandler(async (context) =>
+            {
+                string code = context.ParseResult.GetValueForArgument(execCommand.Arguments.First(a => a.Name == "code")) as string ?? throw new ArgumentException("Code argument is missing.");
+                bool sandbox = context.ParseResult.GetValueForOption<bool>(rootCommand.Options.First(o => o.Name == "sandbox"));
+                string[]? allowedPaths = context.ParseResult.GetValueForOption<string[]?>(rootCommand.Options.First(o => o.Name == "allow-path"));
 
-        private bool CheckPermissions(string actionName)
-        {
-            return true; // For demonstration, assume all permissions are granted.
-        }
-    }
-}
+                if (sandbox) securityManager.ActivateSandbox(); else securityManager.DeactivateSandbox();
+                if (allowedPaths != null) securityManager.SetAllowedPaths(allowedPaths);
 
-// Top-level statements for the application entry point
+                try
+                {
+                    await interpreter.Eval(code);
+                }
+                catch (SalusException ex)
+                {
+                    LogSystem.Error($"Salus Exec Error: {ex.Message}", ex);
+                    context.ExitCode = 1;
+                }
+                catch (Exception ex)
+                {
+                    LogSystem.Error($"Unhandled System Error during direct execution: {ex.Message}", ex);
+                    context.ExitCode = 1;
+                }
+            });
 
-// 1. Initialize core services
-var errorLogger = new Salus.Logging.ErrorLogger();
-var salusEngine = new Salus.Core.SalusEngine(errorLogger);
-var moduleManager = new Salus.Modules.ModuleManager(errorLogger);
-var securityManager = new Salus.Security.SecurityManager(errorLogger);
+            var evalCommand = new Command("eval", "Evaluate a Salus expression and print its result.")
+            {
+                new Argument<string>("expression", "The Salus expression to evaluate.")
+            };
+            evalCommand.SetHandler(async (context) =>
+            {
+                string expression = context.ParseResult.GetValueForArgument(evalCommand.Arguments.First(a => a.Name == "expression")) as string ?? throw new ArgumentException("Expression argument is missing.");
+                bool sandbox = context.ParseResult.GetValueForOption<bool>(rootCommand.Options.First(o => o.Name == "sandbox"));
+                string[]? allowedPaths = context.ParseResult.GetValueForOption<string[]?>(rootCommand.Options.First(o => o.Name == "allow-path"));
 
-// 2. Setup CLI commands using System.CommandLine
-var rootCommand = new RootCommand("Salus - The Secure Cross-Platform Scripting Language");
+                if (sandbox) securityManager.ActivateSandbox(); else securityManager.DeactivateSandbox();
+                if (allowedPaths != null) securityManager.SetAllowedPaths(allowedPaths);
 
-// run command: Executes a Salus script file
-var runCommand = new Command("run", "Execute a Salus script file.")
-{
-    new Argument<string>("filePath", "Path to the Salus script file.") { Description = "Path to the Salus script file." },
-    new Option<List<string>>(new[] { "--args", "-a" }, "Arguments to pass to the script.") { AllowMultipleArgumentsPerToken = true, Arity = ArgumentArity.ZeroOrMore }
-};
-runCommand.SetHandler(async (string filePath, List<string> args) =>
-{
-    try
-    {
-        await securityManager.SandboxExecuteAsync(() => salusEngine.RunScriptAsync(filePath, args ?? new List<string>()));
-    }
-    catch (Exception ex)
-    {
-        errorLogger.Log(ex, Salus.Logging.ErrorLevel.RuntimeError, $"Failed to run script {filePath}");
-        Environment.ExitCode = 1; // Indicate failure
-    }
-}, runCommand.Arguments.OfType<Argument<string>>().First(), runCommand.Options.OfType<Option<List<string>>>().First());
-rootCommand.Add(runCommand);
+                try
+                {
+                    object? result = await interpreter.Eval(expression);
+                    if (result != null)
+                    {
+                        Console.WriteLine($"=> {result}");
+                    }
+                }
+                catch (SalusException ex)
+                {
+                    LogSystem.Error($"Salus Eval Error: {ex.Message}", ex);
+                    context.ExitCode = 1;
+                }
+                catch (Exception ex)
+                {
+                    LogSystem.Error($"Unhandled System Error during evaluation: {ex.Message}", ex);
+                    context.ExitCode = 1;
+                }
+            });
 
-// exec command: Executes a Salus statement or command directly
-var execCommand = new Command("exec", "Execute a Salus statement or external command.")
-{
-    new Argument<string>("commandString", "Salus statement or external command to execute.") { Description = "Salus statement or external command to execute." },
-    new Option<List<string>>(new[] { "--args", "-a" }, "Arguments for the command.") { AllowMultipleArgumentsPerToken = true, Arity = ArgumentArity.ZeroOrMore }
-};
-execCommand.SetHandler(async (string commandString, List<string> args) =>
-{
-    try
-    {
-        await securityManager.SandboxExecuteAsync(() => salusEngine.ExecuteCommandAsync(commandString, args ?? new List<string>()));
-    }
-    catch (Exception ex)
-    {
-        errorLogger.Log(ex, Salus.Logging.ErrorLevel.RuntimeError, $"Failed to execute command: {commandString}");
-        Environment.ExitCode = 1;
-    }
-}, execCommand.Arguments.OfType<Argument<string>>().First(), execCommand.Options.OfType<Option<List<string>>>().First());
-rootCommand.Add(execCommand);
+            rootCommand.SetHandler(async (context) =>
+            {
+                bool sandbox = context.ParseResult.GetValueForOption<bool>(rootCommand.Options.First(o => o.Name == "sandbox"));
+                string[]? allowedPaths = context.ParseResult.GetValueForOption<string[]?>(rootCommand.Options.First(o => o.Name == "allow-path"));
 
-// eval command: Evaluates a Salus expression and prints result
-var evalCommand = new Command("eval", "Evaluate a Salus expression and print the result.")
-{
-    new Argument<string>("expression", "Salus expression to evaluate.") { Description = "Salus expression to evaluate." }
-};
-evalCommand.SetHandler(async (string expression) =>
-{
-    try
-    {
-        var result = await securityManager.SandboxExecuteAsync(() => salusEngine.EvaluateExpressionAsync(expression));
-        Console.WriteLine($"{result}");
-    }
-    catch (Exception ex)
-    {
-        errorLogger.Log(ex, Salus.Logging.ErrorLevel.RuntimeError, $"Failed to evaluate expression: {expression}");
-        Environment.ExitCode = 1;
-    }
-}, evalCommand.Arguments.OfType<Argument<string>>().First());
-rootCommand.Add(evalCommand);
+                if (sandbox) securityManager.ActivateSandbox(); else securityManager.DeactivateSandbox();
+                if (allowedPaths != null) securityManager.SetAllowedPaths(allowedPaths);
 
-// script command: Interactive mode or execute inline script
-var scriptCommand = new Command("script", "Enter interactive Salus scripting mode or execute inline script.")
-{
-     new Argument<string>("inlineScript", () => string.Empty, "Inline Salus script to execute (optional, for non-interactive).") { Arity = ArgumentArity.ZeroOrOne }
-};
-scriptCommand.SetHandler(async (string inlineScript) =>
-{
-    try
-    {
-        if (!string.IsNullOrWhiteSpace(inlineScript))
-        {
-            await securityManager.SandboxExecuteAsync(() => salusEngine.ExecuteInlineScriptAsync(inlineScript));
-        }
-        else
-        {
-            var cliModule = new Salus.Cli.CliModule(salusEngine, errorLogger, securityManager);
-            await cliModule.StartInteractiveModeAsync();
+                cliInteraction.SetupCliFeatures();
+                await cliInteraction.RunInteractiveMode();
+            });
+
+            rootCommand.AddCommand(runCommand);
+            rootCommand.AddCommand(execCommand);
+            rootCommand.AddCommand(evalCommand);
+
+            return await rootCommand.InvokeAsync(args);
         }
     }
-    catch (Exception ex)
-    {
-        errorLogger.Log(ex, Salus.Logging.ErrorLevel.RuntimeError, "Failed in script command.");
-        Environment.ExitCode = 1;
-    }
-}, scriptCommand.Arguments.OfType<Argument<string>>().First());
-rootCommand.Add(scriptCommand);
-
-// diag command: for diagnostics and reporting
-var diagCommand = new Command("diag", "Run diagnostic tools or generate reports.")
-{
-    new Argument<string>("mode", "Diagnostic mode (e.g., 'report', 'health', 'version').") { Description = "Diagnostic mode (e.g., 'report', 'health', 'version')." }
-};
-diagCommand.SetHandler((string mode) =>
-{
-    switch (mode.ToLowerInvariant())
-    {
-        case "report":
-            Console.WriteLine("Generating system report...");
-            // Call methods from various modules to gather info
-            break;
-        case "health":
-            Console.WriteLine("Checking system health...");
-            break;
-        case "version":
-            // Use a representative assembly for version
-            Console.WriteLine($"Salus Version: {typeof(Salus.Core.SalusEngine).Assembly.GetName().Version ?? new Version(0,0,1,0)}");
-            Console.WriteLine($".NET Runtime: {Environment.Version}");
-            break;
-        default:
-            Console.WriteLine($"Unknown diagnostic mode: {mode}");
-            Environment.ExitCode = 1;
-            break;
-    }
-}, diagCommand.Arguments.OfType<Argument<string>>().First());
-rootCommand.Add(diagCommand);
-
-// 3. Execute the CLI parser
-try
-{
-    return await rootCommand.InvokeAsync(args);
-}
-catch (Exception ex)
-{
-    errorLogger.Log(ex, Salus.Logging.ErrorLevel.SystemError, "An unhandled system error occurred during CLI invocation.");
-    return 1; // Indicate failure
 }
